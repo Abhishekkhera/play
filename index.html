@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Play</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0e; --fg: #ececf1; --dim: #8b8b96; --accent: #3d7bff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #hud { position: fixed; left: 16px; top: 16px; display: flex; gap: 8px; align-items: center; }
+  .pill { padding: 6px 12px; border-radius: 999px; background: rgb(20 20 26 / 0.8); border: 1px solid rgb(255 255 255 / 0.1); backdrop-filter: blur(8px); }
+  #start { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(0 0 0 / 0.6); }
+  #start button, #codes button { font: 600 16px system-ui; padding: 14px 28px; border-radius: 999px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  #codes button { font-size: 14px; padding: 10px 20px; justify-self: start; }
+  #codes { position: fixed; inset: 0; display: none; place-items: center; background: rgb(0 0 0 / 0.85); }
+  #codes .box { width: min(560px, calc(100% - 32px)); display: grid; gap: 10px; }
+  #codes p { margin: 0; color: var(--dim); }
+  #codes textarea { width: 100%; box-sizing: border-box; min-height: 90px; background: #14141a; color: var(--fg); border: 1px solid rgb(255 255 255 / 0.1); border-radius: 10px; padding: 10px; font: 12px/1.4 ui-monospace, monospace; word-break: break-all; }
+  #keys { position: fixed; right: 16px; bottom: 16px; color: var(--dim); font-size: 12px; text-align: right; }
+</style>
+</head>
+<body>
+<div id="stage"><video id="v" autoplay playsinline></video></div>
+<div id="hud"><span class="pill" id="who">Connecting</span><span class="pill" id="pad">Keyboard</span></div>
+<div id="keys">WASD stick · arrows D-pad · J ✕ · K ○ · U □ · I △ · Q L1 · E R1 · Z L2 · C R2 · Enter Start · Shift Select</div>
+<div id="codes"><div class="box">
+  <p>1. Send this join code to the host.</p>
+  <textarea id="mine" readonly>Making your code…</textarea>
+  <button id="copyMine">Copy join code</button>
+  <p>2. Paste the reply code the host sends back.</p>
+  <textarea id="theirs" placeholder="Reply code"></textarea>
+  <button id="connect">Connect</button>
+  <p id="cmsg"></p>
+</div></div>
+<div id="start"><button id="go">Join game</button></div>
+<script>
+// Home network: everything goes through the server that served this page (video on /whep, controls on /pad).
+// Internet: this page is opened as a file (sent over chat) or with ?p2p. No server in between: the browser makes a
+// join code, the host's PC answers with a reply code, then video and controls flow straight between the two.
+// served by the PC on the home network (localhost / 192.168.x / 10.x) = home mode; opened as a file or from a web link = internet mode
+const HOME = /^(localhost|127\.|192\.168\.|10\.)/.test(location.hostname) && location.protocol === 'http:'
+const P2P = !HOME || new URLSearchParams(location.search).has('p2p')
+const ICE = [{ urls: 'stun:stun.l.google.com:19302' }]
+const VIDEO = '/whep'
+const PADS = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/pad`
+const $ = (id) => document.getElementById(id)
+const showPlayer = (m) => { $('who').textContent = m.error === 'full' ? 'Game is full' : `You are player ${m.player}` }
+
+// ---- video + sound (WebRTC) ----
+function addMedia(pc) {
+  pc.addTransceiver('video', { direction: 'recvonly' })
+  pc.addTransceiver('audio', { direction: 'recvonly' })
+  pc.ontrack = (e) => {
+    if ($('v').srcObject === e.streams[0]) return
+    $('v').srcObject = e.streams[0]
+    // if the browser blocks sound-on autoplay, one click anywhere starts it
+    $('v').play().catch(() => { $('who').textContent = 'Click anywhere to start the picture'; addEventListener('click', () => $('v').play(), { once: true }) })
+  }
+}
+function gathered(pc, ms = 1500) {
+  return new Promise((r) => {
+    if (pc.iceGatheringState === 'complete') return r()
+    pc.addEventListener('icegatheringstatechange', () => pc.iceGatheringState === 'complete' && r())
+    setTimeout(r, ms)
+  })
+}
+async function playVideo() {
+  const pc = new RTCPeerConnection()
+  addMedia(pc)
+  await pc.setLocalDescription(await pc.createOffer())
+  await gathered(pc)
+  const res = await fetch(VIDEO, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp })
+  if (!res.ok) throw new Error('video ' + res.status)
+  await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() })
+}
+
+// ---- controls ----
+const B = { UP: 0x1, DOWN: 0x2, LEFT: 0x4, RIGHT: 0x8, START: 0x10, BACK: 0x20, LS: 0x40, RS: 0x80, LB: 0x100, RB: 0x200, A: 0x1000, B: 0x2000, X: 0x4000, Y: 0x8000 }
+const KEY = { ArrowUp: B.UP, ArrowDown: B.DOWN, ArrowLeft: B.LEFT, ArrowRight: B.RIGHT, Enter: B.START, ShiftLeft: B.BACK, ShiftRight: B.BACK,
+  KeyJ: B.A, KeyK: B.B, KeyU: B.X, KeyI: B.Y, KeyQ: B.LB, KeyE: B.RB }
+const held = new Set()
+let ws, dc, last = ''
+
+function keyboardState() {
+  let b = 0
+  for (const k of held) b |= KEY[k] || 0
+  const lx = (held.has('KeyD') ? 1 : 0) - (held.has('KeyA') ? 1 : 0)
+  const ly = (held.has('KeyW') ? 1 : 0) - (held.has('KeyS') ? 1 : 0)
+  return { b, lx, ly, rx: 0, ry: 0, lt: held.has('KeyZ') ? 1 : 0, rt: held.has('KeyC') ? 1 : 0 }
+}
+// Standard-layout gamepad to XInput: browser y axes point down, XInput up, so they are flipped.
+function gamepadState(g) {
+  const p = (i) => g.buttons[i]?.pressed
+  const map = [[0, B.A], [1, B.B], [2, B.X], [3, B.Y], [4, B.LB], [5, B.RB], [8, B.BACK], [9, B.START], [10, B.LS], [11, B.RS], [12, B.UP], [13, B.DOWN], [14, B.LEFT], [15, B.RIGHT]]
+  let b = 0
+  for (const [i, bit] of map) if (p(i)) b |= bit
+  const dz = (v) => (Math.abs(v) < 0.08 ? 0 : v)
+  return { b, lx: dz(g.axes[0] || 0), ly: -dz(g.axes[1] || 0), rx: dz(g.axes[2] || 0), ry: -dz(g.axes[3] || 0), lt: g.buttons[6]?.value || 0, rt: g.buttons[7]?.value || 0 }
+}
+let resendAt = 0
+function send(state) {
+  const s = JSON.stringify(state)
+  if (P2P) {
+    // the internet channel may drop a message, so the current state is also repeated every 100 ms
+    if (dc?.readyState === 'open' && (s !== last || performance.now() > resendAt)) { dc.send(s); last = s; resendAt = performance.now() + 100 }
+  } else if (s !== last && ws?.readyState === 1) { ws.send(s); last = s }
+}
+function loop() {
+  const g = [...(navigator.getGamepads?.() || [])].find(Boolean)
+  $('pad').textContent = g ? 'Controller' : 'Keyboard'
+  send(g ? gamepadState(g) : keyboardState())
+  requestAnimationFrame(loop)
+}
+addEventListener('keydown', (e) => { if (e.target.tagName === 'TEXTAREA') return; if (e.code in KEY || /^Key[WASDZC]$/.test(e.code)) { held.add(e.code); e.preventDefault() } })
+addEventListener('keyup', (e) => { held.delete(e.code) })
+addEventListener('blur', () => held.clear())   // switching tabs must not leave a button held
+
+function connectPads() {
+  ws = new WebSocket(PADS)
+  ws.onmessage = (e) => showPlayer(JSON.parse(e.data))
+  ws.onclose = () => { $('who').textContent = 'Reconnecting'; setTimeout(connectPads, 1500) }
+}
+
+// ---- internet mode: codes swapped over chat ----
+async function pack(obj) {
+  const z = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'))
+  const bytes = new Uint8Array(await new Response(z).arrayBuffer())
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+async function unpack(code) {
+  code = code.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/')
+  const bin = atob(code + '='.repeat((4 - (code.length % 4)) % 4))
+  const z = new Blob([Uint8Array.from(bin, (c) => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
+  return JSON.parse(await new Response(z).text())
+}
+async function copyText(id) {
+  $(id).select()
+  try { await navigator.clipboard.writeText($(id).value) } catch { document.execCommand('copy') }
+  $('cmsg').textContent = 'Copied.'
+}
+async function startP2P() {
+  $('codes').style.display = 'grid'
+  const vpc = new RTCPeerConnection({ iceServers: ICE })
+  addMedia(vpc)
+  // the host sends H264 as-is, so ask for H264 first
+  const caps = RTCRtpReceiver.getCapabilities?.('video')?.codecs || []
+  const h264 = caps.filter((c) => c.mimeType === 'video/H264')
+  const vt = vpc.getTransceivers().find((t) => t.receiver.track.kind === 'video')
+  if (h264.length && vt?.setCodecPreferences) vt.setCodecPreferences([...h264, ...caps.filter((c) => c.mimeType !== 'video/H264')])
+  const cpc = new RTCPeerConnection({ iceServers: ICE })
+  window.links = { video: vpc, controls: cpc }   // for troubleshooting from the browser console
+  dc = cpc.createDataChannel('pad', { ordered: false, maxRetransmits: 0 })
+  dc.onmessage = (e) => showPlayer(JSON.parse(e.data))
+  cpc.onconnectionstatechange = () => { if (cpc.connectionState === 'failed' || cpc.connectionState === 'disconnected') $('who').textContent = 'Controls lost' }
+  vpc.onconnectionstatechange = () => { if (vpc.connectionState === 'failed') $('who').textContent = 'Could not reach the host: this network blocks direct connections' }
+  await vpc.setLocalDescription(await vpc.createOffer())
+  await cpc.setLocalDescription(await cpc.createOffer())
+  await Promise.all([gathered(vpc, 4000), gathered(cpc, 4000)])
+  $('mine').value = await pack({ v: vpc.localDescription.sdp, c: cpc.localDescription.sdp })
+  $('copyMine').onclick = () => copyText('mine')
+  $('connect').onclick = async () => {
+    try {
+      const a = await unpack($('theirs').value)
+      await vpc.setRemoteDescription({ type: 'answer', sdp: a.v })
+      await cpc.setRemoteDescription({ type: 'answer', sdp: a.c })
+      $('codes').remove()
+      $('who').textContent = 'Connecting'
+    } catch (e) { $('cmsg').textContent = 'That reply code did not work. Ask the host to copy it again.' }
+  }
+}
+
+$('go').onclick = async () => {
+  $('start').remove()
+  loop()
+  if (P2P) return startP2P()
+  connectPads()
+  try { await playVideo() } catch (e) { $('who').textContent = 'Video unavailable: ' + e.message }
+}
+</script>
+</body>
+</html>
