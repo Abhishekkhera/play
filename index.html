@@ -3,44 +3,249 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Play</title>
+<title>PS2 Play</title>
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <style>
-  :root { color-scheme: dark; --bg: #0b0b0e; --fg: #ececf1; --dim: #8b8b96; --accent: #3d7bff; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
-  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
-  #wait { position: absolute; color: var(--dim); font-size: 16px; pointer-events: none; }
-  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-  #hud { position: fixed; left: 16px; top: 16px; display: flex; gap: 8px; align-items: center; }
-  .pill { padding: 6px 12px; border-radius: 999px; background: rgb(20 20 26 / 0.8); border: 1px solid rgb(255 255 255 / 0.1); backdrop-filter: blur(8px); }
-  #start { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(0 0 0 / 0.6); }
-  #start button, #codes button { font: 600 16px system-ui; padding: 14px 28px; border-radius: 999px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
-  #codes button { font-size: 14px; padding: 10px 20px; justify-self: start; }
-  #codes { position: fixed; inset: 0; display: none; place-items: center; background: rgb(0 0 0 / 0.85); }
-  #codes .box { width: min(560px, calc(100% - 32px)); display: grid; gap: 10px; }
-  #codes p { margin: 0; color: var(--dim); }
-  #codes textarea { width: 100%; box-sizing: border-box; min-height: 90px; background: #14141a; color: var(--fg); border: 1px solid rgb(255 255 255 / 0.1); border-radius: 10px; padding: 10px; font: 12px/1.4 ui-monospace, monospace; word-break: break-all; }
-  #keys { position: fixed; right: 16px; bottom: 16px; color: var(--dim); font-size: 12px; text-align: right; }
+  @font-face { font-family: "Geist"; src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: "Geist Mono"; src: url("https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+  :root {
+    color-scheme: dark;
+    --bg: #08090c; --surface: #101217; --surface-2: #171a21; --surface-3: #1f232c; --line: rgb(255 255 255 / .07); --line-2: rgb(255 255 255 / .12);
+    --fg: #eef0f5; --dim: #959cab; --faint: #6b7180; --accent: #1f6fe0; --accent-2: #3a84f0; --accent-ink: #ffffff; --good: #5ee0a0; --bad: #ff5c6c;
+    --ease: cubic-bezier(.16, 1, .3, 1); --spring: cubic-bezier(.34, 1.4, .64, 1);
+  }
+  * { box-sizing: border-box; }
+  ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font: 15px/1.5 "Geist", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .ph, .ph-fill, .ph-bold { line-height: 1; }
+
+  .aurora { position: fixed; inset: 0; pointer-events: none; overflow: hidden; transition: opacity 1s var(--ease); }
+  .aurora i { position: absolute; width: 70vmax; height: 70vmax; border-radius: 50%; filter: blur(100px); }
+  .aurora i:nth-child(1) { background: var(--accent); opacity: .18; left: -25vmax; top: -35vmax; animation: driftA 34s ease-in-out infinite alternate; }
+  .aurora i:nth-child(2) { background: #00c2a8; opacity: .12; right: -30vmax; bottom: -30vmax; animation: driftB 42s ease-in-out infinite alternate; }
+  .aurora i:nth-child(3) { background: #00b8ff; opacity: .08; left: 30vmax; top: 30vmax; animation: driftC 50s ease-in-out infinite alternate; }
+  @keyframes driftA { to { transform: translate(20vmax, 16vmax) scale(1.15); } }
+  @keyframes driftB { to { transform: translate(-18vmax, -14vmax) scale(.9); } }
+  @keyframes driftC { to { transform: translate(-16vmax, -20vmax) scale(1.1); } }
+  body.ingame .aurora { opacity: 0; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; height: 46px; padding: 0 24px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface-2); cursor: pointer; font-weight: 580; font-size: 15px; white-space: nowrap; overflow: hidden; transition: transform .25s var(--ease), background .2s, opacity .2s; }
+  .btn:hover { background: var(--surface-3); transform: translateY(-1px); }
+  .btn:active { transform: scale(.96); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .btn.primary:hover { background: var(--accent-2); }
+  .btn.big { height: 56px; padding: 0 34px; font-size: 16px; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
+  .btn.ghost:hover { color: var(--fg); background: var(--surface-2); }
+  .btn.icon { width: 40px; height: 40px; padding: 0; }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+  .btn .swap { display: inline-grid; } .btn .swap > * { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 9px; transition: transform .45s var(--spring), opacity .25s; }
+  .btn .swap > :last-child { transform: translateY(150%); opacity: 0; }
+  .btn.done .swap > :first-child { transform: translateY(-150%); opacity: 0; }
+  .btn.done .swap > :last-child { transform: none; opacity: 1; }
+
+  /* screens slide in from the right and out to the left */
+  .screen { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px 16px; opacity: 0; pointer-events: none; transform: translateX(60px); transition: opacity .5s var(--ease), transform .7s var(--ease); z-index: 2; }
+  .screen.on { opacity: 1; pointer-events: auto; transform: none; }
+  .screen.past { transform: translateX(-60px); }
+  .card { width: min(480px, 100%); display: grid; gap: 20px; }
+  .card > * { transition: transform .8s var(--ease), opacity .6s var(--ease); }
+  .screen:not(.on) .card > * { opacity: 0; transform: translateY(16px); }
+  .card > :nth-child(2) { transition-delay: .06s; } .card > :nth-child(3) { transition-delay: .12s; } .card > :nth-child(4) { transition-delay: .18s; } .card > :nth-child(5) { transition-delay: .24s; }
+
+  .logo { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-size: 34px; box-shadow: 0 20px 50px color-mix(in srgb, var(--accent) 35%, transparent); animation: logoFloat 5s ease-in-out infinite; }
+  @keyframes logoFloat { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-10px) rotate(4deg); } }
+  h1 { margin: 0; font-size: clamp(34px, 6vw, 52px); line-height: 1.04; font-weight: 680; letter-spacing: -.035em; text-wrap: balance; }
+  h2 { margin: 0; font-size: 26px; line-height: 1.15; font-weight: 650; letter-spacing: -.025em; }
+  .lead { margin: 0; color: var(--dim); font-size: 16px; max-width: 42ch; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--faint); font-size: 13px; }
+  .meta span { display: inline-flex; align-items: center; gap: 7px; }
+
+  .progress { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 13px; }
+  .progress .bar { position: relative; flex: 0 0 120px; height: 4px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+  .progress .bar i { position: absolute; inset: 0; background: var(--accent); border-radius: inherit; transform-origin: left; transform: scaleX(var(--p, .5)); transition: transform .8s var(--ease); }
+
+  .codebox { user-select: all; position: relative; padding: 16px 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-2); font: 13px/1.6 "Geist Mono", ui-monospace, monospace; color: var(--dim); word-break: break-all; min-height: 96px; }
+  .codebox span { opacity: 0; animation: type .35s var(--ease) forwards; }
+  @keyframes type { from { opacity: 0; filter: blur(4px); } to { opacity: 1; filter: none; } }
+  .making { display: flex; align-items: center; gap: 12px; color: var(--dim); font: 14px "Geist", sans-serif; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .hint { color: var(--faint); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+
+  .paste { position: relative; display: grid; place-items: center; align-content: center; gap: 10px; min-height: 150px; padding: 20px; border-radius: 16px; border: 1.5px dashed var(--line-2); background: var(--surface); color: var(--dim); font-size: 14px; text-align: center; cursor: text; transition: border-color .25s, background .25s; }
+  .paste i { font-size: 34px; color: var(--faint); transition: color .3s, transform .5s var(--spring); }
+  .paste b { color: var(--fg); font-weight: 600; font-size: 15px; }
+  .paste:hover, .paste.focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .paste.focus i { color: var(--accent); transform: translateY(-4px) rotate(-8deg); }
+  .paste input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; font-size: 16px; cursor: text; }
+  .paste.err { animation: shake .45s var(--ease); border-color: rgb(255 92 108 / .7); }
+  @keyframes shake { 20% { transform: translateX(-8px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(2px); } }
+  .msg { color: var(--bad); font-size: 14px; display: flex; gap: 8px; align-items: flex-start; }
+  .msg:empty { display: none; }
+
+  /* connecting: packets travel between you and the host */
+  .link { position: relative; display: flex; align-items: center; justify-content: space-between; height: 92px; }
+  .node { position: relative; z-index: 1; width: 72px; height: 72px; border-radius: 22px; display: grid; place-items: center; font-size: 30px; background: var(--surface-2); border: 1px solid var(--line-2); }
+  .node.host { color: var(--accent); }
+  .node small { position: absolute; top: 80px; font-size: 12px; color: var(--faint); white-space: nowrap; }
+  .wire { position: absolute; left: 72px; right: 72px; top: 50%; height: 2px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 12px); }
+  .wire i { position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: packet 1.8s var(--ease) infinite; }
+  .wire i:nth-child(2) { animation-delay: .6s; } .wire i:nth-child(3) { animation-delay: 1.2s; }
+  .wire i.back { background: #7d93ff; box-shadow: 0 0 12px #7d93ff; animation-name: packetBack; }
+  @keyframes packet { from { left: 0; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { left: calc(100% - 8px); opacity: 0; } }
+  @keyframes packetBack { from { left: calc(100% - 8px); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { left: 0; opacity: 0; } }
+  .link.ok .wire { background: var(--good); transition: background .4s; }
+  .link.ok .wire i { display: none; }
+  .link.ok .node { border-color: rgb(94 224 160 / .5); transition: border-color .4s; }
+  .link.fail .wire { background: repeating-linear-gradient(90deg, rgb(255 92 108 / .5) 0 6px, transparent 6px 12px); }
+  .link.fail .wire i { display: none; }
+  .phase { display: grid; gap: 10px; }
+  .phase div { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 14px; transition: color .3s; }
+  .phase div i { width: 18px; text-align: center; }
+  .phase div.now { color: var(--fg); }
+  .phase div.now i { color: var(--accent); }
+  .phase div.ok { color: var(--dim); }
+  .phase div.ok i { color: var(--good); }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fail-ic { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; background: rgb(255 92 108 / .12); color: var(--bad); font-size: 32px; animation: tilt 4s ease-in-out infinite; }
+  @keyframes tilt { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg) translateY(-4px); } }
+
+  /* game */
+  #game { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .8s var(--ease); z-index: 1; }
+  body.ingame #game { opacity: 1; pointer-events: auto; }
+  #game video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .overlay { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 16px; text-align: center; padding: 24px; background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%), rgb(8 9 12 / .88); opacity: 0; pointer-events: none; transition: opacity .5s var(--ease); }
+  .overlay.on { opacity: 1; pointer-events: auto; }
+  .overlay .big { font-size: 48px; color: var(--accent); }
+  .overlay h3 { margin: 0; font-size: 22px; font-weight: 640; letter-spacing: -.02em; }
+  .overlay p { margin: 0; color: var(--dim); max-width: 40ch; }
+  .orbit { position: relative; width: 96px; height: 96px; display: grid; place-items: center; }
+  .orbit > i { font-size: 44px; color: var(--fg); animation: bobble 3.2s ease-in-out infinite; }
+  .orbit span { position: absolute; inset: 0; animation: spin 3s linear infinite; }
+  .orbit span::before { content: ""; position: absolute; left: 50%; top: -2px; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+  .orbit span:nth-child(3) { animation-duration: 4.5s; animation-direction: reverse; inset: 12px; }
+  .orbit span:nth-child(3)::before { background: #7d93ff; box-shadow: 0 0 14px #7d93ff; width: 7px; height: 7px; }
+  @keyframes bobble { 0%, 100% { transform: translateY(0) rotate(-8deg); } 50% { transform: translateY(-8px) rotate(8deg); } }
+
+  .hud { position: fixed; left: 16px; right: 16px; top: 16px; z-index: 5; display: flex; align-items: center; gap: 8px; transition: transform .6s var(--ease), opacity .4s; }
+  .hud[hidden] { display: none; }
+  body.calm .hud { transform: translateY(-80px); opacity: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-radius: 999px; background: rgb(16 18 23 / .78); border: 1px solid var(--line-2); backdrop-filter: blur(12px); font-size: 13px; color: var(--dim); }
+  .pill b { color: var(--fg); font-weight: 620; }
+  .pill.me { padding-left: 5px; }
+  .pill.me .badge { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 12px; animation: pop .7s var(--spring) both; }
+  @keyframes pop { from { transform: scale(0) rotate(-120deg); } }
+  .sig { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+  .sig i { width: 3px; border-radius: 1px; background: var(--faint); transition: background .4s; }
+  .sig i:nth-child(1) { height: 40%; } .sig i:nth-child(2) { height: 70%; } .sig i:nth-child(3) { height: 100%; }
+  .sig.l3 i, .sig.l2 i:nth-child(-n+2), .sig.l1 i:nth-child(1) { background: var(--good); }
+  .sig.l1 i:nth-child(1) { background: #ffcf5c; }
+  .hud .spacer { flex: 1; }
+  .hud .btn { height: 38px; background: rgb(16 18 23 / .78); backdrop-filter: blur(12px); }
+
+  .sheet { position: fixed; left: 50%; bottom: 16px; z-index: 6; width: min(720px, calc(100% - 32px)); padding: 20px 22px; border-radius: 20px; background: rgb(16 18 23 / .92); border: 1px solid var(--line-2); backdrop-filter: blur(16px); transform: translate(-50%, calc(100% + 40px)); transition: transform .6s var(--spring); }
+  .sheet.on { transform: translate(-50%, 0); }
+  .sheet h4 { margin: 0 0 14px; font-size: 15px; font-weight: 620; display: flex; align-items: center; gap: 8px; }
+  .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 16px; font-size: 13px; color: var(--dim); }
+  .keys span { display: flex; align-items: center; gap: 6px; }
+  kbd { font: 600 11px "Geist Mono", monospace; min-width: 24px; height: 24px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line-2); border-bottom-width: 2px; color: var(--fg); }
+
+  .toast { position: fixed; left: 50%; top: 22px; z-index: 30; display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--line-2); box-shadow: 0 18px 50px rgb(0 0 0 / .5); transform: translate(-50%, -160%); opacity: 0; transition: transform .55s var(--spring), opacity .3s; pointer-events: none; font-size: 14px; max-width: calc(100% - 32px); }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+  .toast i { color: var(--good); font-size: 18px; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 </style>
 </head>
 <body>
-<div id="stage"><video id="v" autoplay playsinline></video><div id="wait">Waiting for the host to start a game</div></div>
-<div id="hud"><span class="pill" id="who">Connecting</span><span class="pill" id="pad">Keyboard</span></div>
-<div id="keys">WASD stick · arrows D-pad · J ✕ · K ○ · U □ · I △ · Q L1 · E R1 · Z L2 · C R2 · Enter Start · Shift Select</div>
-<div id="codes"><div class="box">
-  <p>1. Send this join code to the host.</p>
-  <textarea id="mine" readonly>Making your code…</textarea>
-  <button id="copyMine">Copy join code</button>
-  <p>2. Paste the reply code the host sends back.</p>
-  <textarea id="theirs" placeholder="Reply code"></textarea>
-  <button id="connect">Connect</button>
-  <p id="cmsg"></p>
-</div></div>
-<div id="start"><button id="go">Join game</button></div>
+<div class="aurora"><i></i><i></i><i></i></div>
+
+<!-- 1. welcome -->
+<section class="screen on" id="sWelcome"><div class="card">
+  <div class="logo"><i class="ph-fill ph-game-controller"></i></div>
+  <h1>You're invited to play</h1>
+  <p class="lead">Join your friend's PS2 game right here in your browser. Nothing to install.</p>
+  <div class="row"><button class="btn primary big" id="go">Join game<i class="ph-bold ph-arrow-right"></i></button></div>
+  <div class="meta"><span><i class="ph ph-game-controller"></i>Controller or keyboard</span><span><i class="ph ph-lock-simple"></i>Private link between you two</span></div>
+</div></section>
+
+<!-- 2. send your code -->
+<section class="screen" id="sSend"><div class="card">
+  <div class="progress"><span class="bar" style="--p:.33"><i></i></span>Step 1 of 2</div>
+  <h2>Send this code to your host</h2>
+  <div class="codebox" id="mine"><div class="making"><i class="ph-bold ph-circle-notch spin"></i>Making your code</div></div>
+  <div class="row">
+    <button class="btn primary" id="copyMine" disabled><span class="swap"><span><i class="ph-bold ph-copy"></i>Copy code</span><span><i class="ph-bold ph-check"></i>Copied</span></span></button>
+    <button class="btn" id="sent" disabled>I've sent it<i class="ph-bold ph-arrow-right"></i></button>
+  </div>
+  <div class="hint"><i class="ph ph-chat-circle-text"></i>Send it on WhatsApp or any chat. It only works for the next 3 minutes.</div>
+</div></section>
+
+<!-- 3. paste their reply -->
+<section class="screen" id="sReply"><div class="card">
+  <div class="progress"><span class="bar" style="--p:.66"><i></i></span>Step 2 of 2</div>
+  <h2>Paste the reply your host sends back</h2>
+  <label class="paste" id="paste"><i class="ph ph-clipboard-text"></i><b id="pasteTxt">Click here, then press Ctrl+V</b><span>You'll connect as soon as it's pasted</span><input id="theirs" autocomplete="off" spellcheck="false" aria-label="Reply code" /></label>
+  <div class="msg" id="cmsg"></div>
+  <div class="row"><button class="btn ghost" id="back"><i class="ph ph-arrow-left"></i>Back to my code</button></div>
+</div></section>
+
+<!-- 4. connecting -->
+<section class="screen" id="sConnect"><div class="card">
+  <div class="link" id="linkAnim">
+    <div class="node"><i class="ph ph-user"></i><small>You</small></div>
+    <div class="wire"><i></i><i class="back"></i><i></i></div>
+    <div class="node host"><i class="ph-fill ph-game-controller"></i><small>Host</small></div>
+  </div>
+  <h2 id="connTitle" style="margin-top:14px">Connecting to your host</h2>
+  <div class="phase" id="phase">
+    <div class="ok" data-p="code"><i class="ph-bold ph-check"></i>Codes swapped</div>
+    <div class="now" data-p="reach"><i class="ph-bold ph-circle-notch spin"></i>Reaching the host</div>
+    <div data-p="secure"><i class="ph ph-circle"></i>Securing the link</div>
+    <div data-p="ready"><i class="ph ph-circle"></i>Getting your controller ready</div>
+  </div>
+</div></section>
+
+<!-- 5. could not connect -->
+<section class="screen" id="sFail"><div class="card">
+  <div class="fail-ic"><i class="ph ph-plugs"></i></div>
+  <h2 id="failTitle">Couldn't reach the host</h2>
+  <p class="lead" id="failText">The connection didn't go through. Start over to make a fresh code.</p>
+  <div class="row"><button class="btn primary" id="retry"><i class="ph-bold ph-arrow-clockwise"></i>Start over</button></div>
+</div></section>
+
+<!-- game -->
+<div id="game">
+  <video id="v" autoplay playsinline></video>
+  <div class="overlay" id="oWait"><div class="orbit"><i class="ph-fill ph-game-controller"></i><span></span><span></span></div><h3>You're in</h3><p>Waiting for the host to start a game. It'll appear here on its own.</p></div>
+  <div class="overlay" id="oSound"><i class="ph-fill ph-speaker-high big"></i><h3>Turn on the sound</h3><p>Your browser needs one click before it plays sound.</p><button class="btn primary" id="soundOn"><i class="ph-bold ph-play"></i>Start</button></div>
+  <div class="overlay" id="oLost"><div class="fail-ic"><i class="ph ph-plugs"></i></div><h3 id="lostTitle">Connection lost</h3><p id="lostText">The link to the host dropped. Rejoin to make a fresh code.</p><button class="btn primary" id="rejoin"><i class="ph-bold ph-arrow-clockwise"></i>Rejoin</button></div>
+</div>
+<div class="hud" id="hud" hidden>
+  <span class="pill me"><span class="badge" id="badge">P?</span><b id="who">Connecting</b></span>
+  <span class="pill"><span class="sig" id="sig"><i></i><i></i><i></i></span><span id="ping">--</span></span>
+  <span class="pill"><i class="ph ph-keyboard" id="padIc"></i><span id="pad">Keyboard</span></span>
+  <span class="spacer"></span>
+  <button class="btn" id="keysBtn"><i class="ph ph-keyboard"></i>Keys</button>
+  <button class="btn icon" id="fullBtn" aria-label="Full screen"><i class="ph ph-corners-out"></i></button>
+</div>
+<div class="sheet" id="sheet">
+  <h4><i class="ph ph-keyboard"></i>Keyboard controls</h4>
+  <div class="keys">
+    <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd> D-pad</span>
+    <span><kbd>J</kbd> Cross</span><span><kbd>K</kbd> Circle</span><span><kbd>U</kbd> Square</span><span><kbd>I</kbd> Triangle</span>
+    <span><kbd>Q</kbd> L1 <kbd>E</kbd> R1</span><span><kbd>Z</kbd> L2 <kbd>C</kbd> R2</span><span><kbd>Enter</kbd> Start</span><span><kbd>Shift</kbd> Select</span>
+  </div>
+</div>
+<div class="toast" id="toast"><i class="ph-fill ph-check-circle"></i><span></span></div>
+
 <script>
 // Home network: everything goes through the server that served this page (video on /whep, controls on /pad).
-// Internet: this page is opened as a file (sent over chat) or with ?p2p. No server in between: the browser makes a
-// join code, the host's PC answers with a reply code, then video and controls flow straight between the two.
-// served by the PC on the home network (localhost / 192.168.x / 10.x) = home mode; opened as a file or from a web link = internet mode
+// Internet (the GitHub link): no server in between. The browser makes a join code, the host's PC answers with a
+// reply code, then video and controls flow between the two (through the host's relay when a network blocks direct links).
 const HOME = /^(localhost|127\.|192\.168\.|10\.)/.test(location.hostname) && location.protocol === 'http:'
 const P2P = !HOME || new URLSearchParams(location.search).has('p2p')
 // two STUN servers: if they see different ports, this network changes port per destination (shows up in the join code)
@@ -48,12 +253,75 @@ const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudf
 const VIDEO = '/whep'
 const PADS = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/pad`
 const $ = (id) => document.getElementById(id)
-const showPlayer = (m) => { $('who').textContent = m.error === 'full' ? 'Game is full' : `You are player ${m.player}` }
 
-// ---- video + sound (WebRTC) ----
-// the waiting note shows whenever no new frames arrive (host has no game running)
+// ---------- screens + feedback ----------
+const ORDER = ['sWelcome', 'sSend', 'sReply', 'sConnect', 'sFail']
+function show(id) {
+  const k = ORDER.indexOf(id)
+  ORDER.forEach((s, i) => { $(s).classList.toggle('on', s === id); $(s).classList.toggle('past', i < k) })
+  if (id) document.body.classList.remove('ingame')
+}
+function toast(text, bad) {
+  const t = $('toast'); t.querySelector('span').textContent = text; t.classList.add('show')
+  t.querySelector('i').className = bad ? 'ph-fill ph-warning-circle' : 'ph-fill ph-check-circle'; t.querySelector('i').style.color = bad ? 'var(--bad)' : ''
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2800)
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true } catch {}
+  // older or locked-down browsers: copy through a hidden field
+  const t = Object.assign(document.createElement('textarea'), { value: text }); t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;opacity:0;top:0'
+  document.body.appendChild(t); t.select(); let ok = false; try { ok = document.execCommand('copy') } catch {} t.remove(); return ok
+}
+function flash(btn) { btn.classList.add('done'); clearTimeout(btn._t); btn._t = setTimeout(() => btn.classList.remove('done'), 1800) }
+function phase(p) {
+  const steps = ['code', 'reach', 'secure', 'ready'], k = steps.indexOf(p)
+  document.querySelectorAll('#phase div').forEach((d) => {
+    const i = steps.indexOf(d.dataset.p)
+    d.className = i < k ? 'ok' : i === k ? 'now' : ''
+    d.querySelector('i').className = i < k ? 'ph-bold ph-check' : i === k ? 'ph-bold ph-circle-notch spin' : 'ph ph-circle'
+  })
+}
+let joined = false
+function enterGame() {
+  if (joined) return
+  joined = true
+  $('linkAnim').classList.add('ok'); phase('done')
+  $('connTitle').textContent = 'Connected'
+  setTimeout(() => { ORDER.forEach((s) => $(s).classList.remove('on')); document.body.classList.add('ingame'); $('hud').hidden = false; calmLater() }, 700)
+}
+function fail(title, text) {
+  if (!joined) {
+    $('linkAnim').classList.add('fail')
+    $('failTitle').textContent = title; $('failText').textContent = text
+    setTimeout(() => show('sFail'), 500)
+  } else {
+    $('lostTitle').textContent = title; $('lostText').textContent = text
+    overlay('oLost')
+  }
+}
+function overlay(id) { ['oWait', 'oSound', 'oLost'].forEach((o) => $(o).classList.toggle('on', o === id)) }
+const showPlayer = (m) => {
+  if (m.error === 'full') return fail('The game is full', 'All 4 controller spots are taken. Ask the host to free one, then rejoin.')
+  $('badge').textContent = `P${m.player}`; $('who').textContent = `Player ${m.player}`
+  enterGame(); toast(`You're player ${m.player}`)
+}
+$('retry').onclick = $('rejoin').onclick = () => location.reload()
+
+// the top bar slides away while you play and comes back when you move the mouse
+function calmLater() { document.body.classList.remove('calm'); clearTimeout(calmLater.t); calmLater.t = setTimeout(() => { if (!$('sheet').classList.contains('on')) document.body.classList.add('calm') }, 3000) }
+addEventListener('pointermove', () => { if (joined) calmLater() })
+$('keysBtn').onclick = () => { $('sheet').classList.toggle('on'); calmLater() }
+$('fullBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()
+addEventListener('fullscreenchange', () => { $('fullBtn').innerHTML = document.fullscreenElement ? '<i class="ph ph-corners-in"></i>' : '<i class="ph ph-corners-out"></i>' })
+
+// ---------- video + sound ----------
+// "waiting for a game" shows whenever no new frames arrive
 let seenFrames = -1
-setInterval(() => { const n = $("v").getVideoPlaybackQuality?.().totalVideoFrames ?? 0; $("wait").style.display = !$("start") && n === seenFrames ? "" : "none"; seenFrames = n }, 1500)
+setInterval(() => {
+  if (!joined || $('oLost').classList.contains('on') || $('oSound').classList.contains('on')) return
+  const n = $('v').getVideoPlaybackQuality?.().totalVideoFrames ?? 0
+  overlay(n === seenFrames ? 'oWait' : null); seenFrames = n
+}, 1500)
 function addMedia(pc) {
   pc.addTransceiver('video', { direction: 'recvonly' })
   pc.addTransceiver('audio', { direction: 'recvonly' })
@@ -62,10 +330,11 @@ function addMedia(pc) {
     if (!e.streams[0]) st.addTrack(e.track)
     if ($('v').srcObject === st) return
     $('v').srcObject = st
-    // if the browser blocks sound-on autoplay, one click anywhere starts it
-    $('v').play().catch(() => { $('who').textContent = 'Click anywhere to start the picture'; addEventListener('click', () => $('v').play(), { once: true }) })
+    // if the browser blocks sound-on autoplay, one click starts it
+    $('v').play().catch(() => overlay('oSound'))
   }
 }
+$('soundOn').onclick = () => { $('v').play(); overlay(null) }
 function gathered(pc, ms = 1500) {
   return new Promise((r) => {
     if (pc.iceGatheringState === 'complete') return r()
@@ -83,13 +352,12 @@ async function playVideo() {
   await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() })
 }
 
-// ---- controls ----
+// ---------- controls ----------
 const B = { UP: 0x1, DOWN: 0x2, LEFT: 0x4, RIGHT: 0x8, START: 0x10, BACK: 0x20, LS: 0x40, RS: 0x80, LB: 0x100, RB: 0x200, A: 0x1000, B: 0x2000, X: 0x4000, Y: 0x8000 }
 const KEY = { ArrowUp: B.UP, ArrowDown: B.DOWN, ArrowLeft: B.LEFT, ArrowRight: B.RIGHT, Enter: B.START, ShiftLeft: B.BACK, ShiftRight: B.BACK,
   KeyJ: B.A, KeyK: B.B, KeyU: B.X, KeyI: B.Y, KeyQ: B.LB, KeyE: B.RB }
 const held = new Set()
 let ws, dc, last = ''
-
 function keyboardState() {
   let b = 0
   for (const k of held) b |= KEY[k] || 0
@@ -114,23 +382,39 @@ function send(state) {
     if (dc?.readyState === 'open' && (s !== last || performance.now() > resendAt)) { dc.send(s); last = s; resendAt = performance.now() + 100 }
   } else if (s !== last && ws?.readyState === 1) { ws.send(s); last = s }
 }
+let hadPad = null
 function loop() {
   const g = [...(navigator.getGamepads?.() || [])].find(Boolean)
-  $('pad').textContent = g ? 'Controller' : 'Keyboard'
+  if (!!g !== hadPad) {
+    hadPad = !!g
+    $('pad').textContent = g ? 'Controller' : 'Keyboard'; $('padIc').className = g ? 'ph-fill ph-game-controller' : 'ph ph-keyboard'
+    if (joined && g) toast('Controller connected')
+  }
   send(g ? gamepadState(g) : keyboardState())
   requestAnimationFrame(loop)
 }
-addEventListener('keydown', (e) => { if (e.target.tagName === 'TEXTAREA') return; if (e.code in KEY || /^Key[WASDZC]$/.test(e.code)) { held.add(e.code); e.preventDefault() } })
+addEventListener('keydown', (e) => { if (e.target.tagName === 'INPUT') return; if (e.code in KEY || /^Key[WASDZC]$/.test(e.code)) { held.add(e.code); e.preventDefault() } })
 addEventListener('keyup', (e) => { held.delete(e.code) })
 addEventListener('blur', () => held.clear())   // switching tabs must not leave a button held
 
 function connectPads() {
   ws = new WebSocket(PADS)
   ws.onmessage = (e) => showPlayer(JSON.parse(e.data))
-  ws.onclose = () => { $('who').textContent = 'Reconnecting'; setTimeout(connectPads, 1500) }
+  ws.onclose = () => { if (joined) { $('who').textContent = 'Reconnecting' } setTimeout(connectPads, 1500) }
 }
 
-// ---- internet mode: codes swapped over chat ----
+// link quality from the controls link's round trip
+setInterval(async () => {
+  const pc = window.links?.controls; if (!pc || !joined) return
+  let rtt = null
+  ;(await pc.getStats()).forEach((r) => { if (r.type === 'candidate-pair' && r.nominated && r.currentRoundTripTime != null) rtt = r.currentRoundTripTime })
+  if (rtt == null) return
+  const ms = Math.round(rtt * 1000)
+  $('ping').textContent = `${ms} ms`
+  $('sig').className = 'sig ' + (ms < 80 ? 'l3' : ms < 160 ? 'l2' : 'l1')
+}, 2000)
+
+// ---------- internet mode: codes swapped over chat ----------
 async function pack(obj) {
   const z = new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('deflate-raw'))
   const bytes = new Uint8Array(await new Response(z).arrayBuffer())
@@ -144,11 +428,6 @@ async function unpack(code) {
   const bin = atob(code + '='.repeat((4 - (code.length % 4)) % 4))
   const z = new Blob([Uint8Array.from(bin, (c) => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
   return JSON.parse(await new Response(z).text())
-}
-async function copyText(id) {
-  $(id).select()
-  try { await navigator.clipboard.writeText($(id).value) } catch { document.execCommand('copy') }
-  $('cmsg').textContent = 'Copied.'
 }
 // ---- short codes: only addresses and keys travel; the full descriptions are rebuilt from a fixed template ----
 const b64u = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -181,8 +460,9 @@ function longAnswers(a, j, v) {
   const controls = [...head, 'a=group:BUNDLE 0', 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', ...ice(a.c), 'a=mid:0', 'a=sctp-port:5000', 'a=max-message-size:65536']
   return { v: video.join('\r\n') + '\r\n', c: controls.join('\r\n') + '\r\n' }
 }
+
 async function startP2P() {
-  $('codes').style.display = 'grid'
+  show('sSend')
   // one key pair for both links, so the code carries one fingerprint
   const cert = await RTCPeerConnection.generateCertificate({ name: 'ECDSA', namedCurve: 'P-256' })
   const vpc = new RTCPeerConnection({ iceServers: ICE, certificates: [cert] })
@@ -196,32 +476,61 @@ async function startP2P() {
   window.links = { video: vpc, controls: cpc }   // for troubleshooting from the browser console
   dc = cpc.createDataChannel('pad', { ordered: false, maxRetransmits: 0 })
   dc.onmessage = (e) => showPlayer(JSON.parse(e.data))
-  cpc.onconnectionstatechange = () => { if (cpc.connectionState === 'failed' || cpc.connectionState === 'disconnected') $('who').textContent = 'Controls lost' }
-  vpc.onconnectionstatechange = () => { if (vpc.connectionState === 'failed') $('who').textContent = 'Could not reach the host: this network blocks direct connections' }
+  dc.onopen = () => phase('ready')
+  const watch = (pc) => () => {
+    const s = pc.connectionState
+    if (s === 'connecting') phase('secure')
+    if (s === 'failed') fail(joined ? 'Connection lost' : "Couldn't reach the host", joined ? 'The link to the host dropped. Rejoin to make a fresh code.' : "Your network and the host's couldn't find a way through. Start over to make a fresh code.")
+    if (s === 'disconnected' && joined) { $('who').textContent = 'Reconnecting'; setTimeout(() => { if (pc.connectionState === 'disconnected') fail('Connection lost', 'The link to the host dropped. Rejoin to make a fresh code.') }, 6000) }
+    if (s === 'connected' && joined) { const b = $('badge').textContent.slice(1); $('who').textContent = `Player ${b}` }
+  }
+  cpc.onconnectionstatechange = watch(cpc)
+  vpc.onconnectionstatechange = () => { if (vpc.connectionState === 'failed' && !joined) watch(vpc)() }
   await vpc.setLocalDescription(await vpc.createOffer())
   await cpc.setLocalDescription(await cpc.createOffer())
   await Promise.all([gathered(vpc, 4000), gathered(cpc, 4000)])
   const join = shortJoin(vpc.localDescription.sdp, cpc.localDescription.sdp)
-  $('mine').value = await pack(join)
-  $('copyMine').onclick = () => copyText('mine')
-  $('connect').onclick = async () => {
+  const code = await pack(join)
+  $('mine').innerHTML = [...code].map((c, i) => `<span style="animation-delay:${i * 3}ms">${c}</span>`).join('')
+  $('copyMine').disabled = false
+  $('copyMine').onclick = async () => {
+    if (await copyText(code)) { flash($('copyMine')); $('sent').disabled = false; $('sent').classList.add('primary'); $('copyMine').classList.remove('primary'); toast('Code copied. Send it to your host.') }
+    else toast('Could not copy. Select the code and press Ctrl+C.', true)
+  }
+  $('sent').onclick = () => { show('sReply'); setTimeout(() => $('theirs').focus(), 400) }
+  $('back').onclick = () => show('sSend')
+
+  const box = $('paste'), input = $('theirs')
+  input.onfocus = () => box.classList.add('focus')
+  input.onblur = () => box.classList.remove('focus')
+  input.addEventListener('paste', (e) => { e.preventDefault(); take(e.clipboardData.getData('text')) })
+  input.addEventListener('input', () => { const v = input.value; input.value = ''; if (v.trim().length > 40) take(v) })
+  async function take(raw) {
+    $('cmsg').textContent = ''
+    box.classList.remove('err')
+    let a
     try {
-      let a = await unpack($('theirs').value)
+      a = await unpack(raw.trim())
       if (a.k === 2) a = longAnswers(a, join, vpc.localDescription.sdp)
       await vpc.setRemoteDescription({ type: 'answer', sdp: a.v })
       await cpc.setRemoteDescription({ type: 'answer', sdp: a.c })
-      $('codes').remove()
-      $('who').textContent = 'Connecting'
-    } catch (e) { $('cmsg').textContent = 'That reply code did not work. Ask the host to copy it again.' }
+    } catch (e) {
+      void box.offsetWidth; box.classList.add('err')
+      $('cmsg').innerHTML = '<i class="ph ph-warning-circle"></i><span>That reply code didn\'t work. Ask the host to copy it again and paste the whole thing.</span>'
+      return
+    }
+    show('sConnect'); phase('reach')
+    // a link that hasn't connected after 40 s won't
+    setTimeout(() => { if (!joined && cpc.connectionState !== 'connected') fail("Couldn't reach the host", "Your network and the host's couldn't find a way through. Start over to make a fresh code.") }, 40000)
   }
 }
 
 $('go').onclick = async () => {
-  $('start').remove()
   loop()
   if (P2P) return startP2P()
+  show('sConnect'); phase('reach')
   connectPads()
-  try { await playVideo() } catch (e) { $('who').textContent = 'Video unavailable: ' + e.message }
+  try { await playVideo() } catch (e) { fail('Video unavailable', e.message) }
 }
 </script>
 </body>
