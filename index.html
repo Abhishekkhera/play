@@ -58,8 +58,10 @@ function addMedia(pc) {
   pc.addTransceiver('video', { direction: 'recvonly' })
   pc.addTransceiver('audio', { direction: 'recvonly' })
   pc.ontrack = (e) => {
-    if ($('v').srcObject === e.streams[0]) return
-    $('v').srcObject = e.streams[0]
+    const st = e.streams[0] || (pc._st ||= new MediaStream())
+    if (!e.streams[0]) st.addTrack(e.track)
+    if ($('v').srcObject === st) return
+    $('v').srcObject = st
     // if the browser blocks sound-on autoplay, one click anywhere starts it
     $('v').play().catch(() => { $('who').textContent = 'Click anywhere to start the picture'; addEventListener('click', () => $('v').play(), { once: true }) })
   }
@@ -148,16 +150,49 @@ async function copyText(id) {
   try { await navigator.clipboard.writeText($(id).value) } catch { document.execCommand('copy') }
   $('cmsg').textContent = 'Copied.'
 }
+// ---- short codes: only addresses and keys travel; the full descriptions are rebuilt from a fixed template ----
+const b64u = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0))
+const line = (sdp, re) => (sdp.match(re) || [])[1] || ''
+const srflx = (sdp) => [...new Set([...sdp.matchAll(/^a=candidate:\S+ 1 udp \d+ (\d+\.\d+\.\d+\.\d+) (\d+) typ (?:srflx|relay)/gm)].map((m) => `${m[1]}:${m[2]}`))]
+function shortJoin(v, c) {
+  // video: first H264 with packetization-mode=1 in the browser's own order
+  const order = line(v, /^m=video \d+ \S+ ([\d ]+)/m).split(' ')
+  const h = order.find((pt) => new RegExp(`^a=rtpmap:${pt} H264/`, 'm').test(v) && new RegExp(`^a=fmtp:${pt} .*packetization-mode=1`, 'm').test(v))
+  const fp = line(v, /^a=fingerprint:sha-256 (\S+)/m).split(':').map((x) => parseInt(x, 16))
+  return {
+    k: 2, f: b64u(fp), h: +h, l: line(v, new RegExp(`^a=fmtp:${h} .*profile-level-id=([0-9a-f]{6})`, 'm')),
+    o: +line(v, /^a=rtpmap:(\d+) opus\//m), x: +line(v, /^a=extmap:(\d+) urn:ietf:params:rtp-hdrext:sdes:mid/m),
+    v: [line(v, /^a=ice-ufrag:(\S+)/m), line(v, /^a=ice-pwd:(\S+)/m), srflx(v)],
+    c: [line(c, /^a=ice-ufrag:(\S+)/m), line(c, /^a=ice-pwd:(\S+)/m), srflx(c)],
+  }
+}
+function longAnswers(a, j, v) {
+  const fmtp = line(v, new RegExp(`^a=fmtp:${j.h} (.*)$`, 'm')).trim()
+  const ice = (p) => [`a=ice-ufrag:${p[0]}`, `a=ice-pwd:${p[1]}`, `a=fingerprint:sha-256 ${[...unb64u(p[2])].map((x) => x.toString(16).padStart(2, '0').toUpperCase()).join(':')}`, `a=setup:${p[3] || 'active'}`,
+    ...p[4].map((ac, i) => { const [ip, port] = ac.split(':'); return `a=candidate:${i + 1} 1 udp ${2000000000 - i} ${ip} ${port} typ host` })]
+  const head = ['v=0', 'o=- 1 1 IN IP4 0.0.0.0', 's=-', 't=0 0']
+  const V = a.v, ss = (n, kind) => (V[n] ? [`a=msid:game ${kind}`, `a=ssrc:${V[n]} cname:game`, `a=ssrc:${V[n]} msid:game ${kind}`] : [])
+  const video = [...head, 'a=group:BUNDLE 0 1', 'a=msid-semantic: WMS game',
+    `m=video 9 UDP/TLS/RTP/SAVPF ${j.h}`, 'c=IN IP4 0.0.0.0', ...ice(V), 'a=mid:0', `a=extmap:${j.x} urn:ietf:params:rtp-hdrext:sdes:mid`, 'a=sendonly', 'a=rtcp-mux',
+    `a=rtpmap:${j.h} H264/90000`, `a=rtcp-fb:${j.h} nack`, `a=rtcp-fb:${j.h} nack pli`, `a=fmtp:${j.h} ${fmtp}`, ...ss(5, 'v'),
+    `m=audio 9 UDP/TLS/RTP/SAVPF ${j.o}`, 'c=IN IP4 0.0.0.0', ...ice(V), 'a=mid:1', `a=extmap:${j.x} urn:ietf:params:rtp-hdrext:sdes:mid`, 'a=sendonly', 'a=rtcp-mux',
+    `a=rtpmap:${j.o} opus/48000/2`, `a=fmtp:${j.o} minptime=10;useinbandfec=1`, ...ss(6, 'a')]
+  const controls = [...head, 'a=group:BUNDLE 0', 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', ...ice(a.c), 'a=mid:0', 'a=sctp-port:5000', 'a=max-message-size:65536']
+  return { v: video.join('\r\n') + '\r\n', c: controls.join('\r\n') + '\r\n' }
+}
 async function startP2P() {
   $('codes').style.display = 'grid'
-  const vpc = new RTCPeerConnection({ iceServers: ICE })
+  // one key pair for both links, so the code carries one fingerprint
+  const cert = await RTCPeerConnection.generateCertificate({ name: 'ECDSA', namedCurve: 'P-256' })
+  const vpc = new RTCPeerConnection({ iceServers: ICE, certificates: [cert] })
   addMedia(vpc)
   // the host sends H264 as-is, so ask for H264 first
   const caps = RTCRtpReceiver.getCapabilities?.('video')?.codecs || []
   const h264 = caps.filter((c) => c.mimeType === 'video/H264')
   const vt = vpc.getTransceivers().find((t) => t.receiver.track.kind === 'video')
   if (h264.length && vt?.setCodecPreferences) vt.setCodecPreferences([...h264, ...caps.filter((c) => c.mimeType !== 'video/H264')])
-  const cpc = new RTCPeerConnection({ iceServers: ICE })
+  const cpc = new RTCPeerConnection({ iceServers: ICE, certificates: [cert] })
   window.links = { video: vpc, controls: cpc }   // for troubleshooting from the browser console
   dc = cpc.createDataChannel('pad', { ordered: false, maxRetransmits: 0 })
   dc.onmessage = (e) => showPlayer(JSON.parse(e.data))
@@ -166,11 +201,13 @@ async function startP2P() {
   await vpc.setLocalDescription(await vpc.createOffer())
   await cpc.setLocalDescription(await cpc.createOffer())
   await Promise.all([gathered(vpc, 4000), gathered(cpc, 4000)])
-  $('mine').value = await pack({ v: vpc.localDescription.sdp, c: cpc.localDescription.sdp })
+  const join = shortJoin(vpc.localDescription.sdp, cpc.localDescription.sdp)
+  $('mine').value = await pack(join)
   $('copyMine').onclick = () => copyText('mine')
   $('connect').onclick = async () => {
     try {
-      const a = await unpack($('theirs').value)
+      let a = await unpack($('theirs').value)
+      if (a.k === 2) a = longAnswers(a, join, vpc.localDescription.sdp)
       await vpc.setRemoteDescription({ type: 'answer', sdp: a.v })
       await cpc.setRemoteDescription({ type: 'answer', sdp: a.c })
       $('codes').remove()
